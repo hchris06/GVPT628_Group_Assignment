@@ -1,6 +1,6 @@
 ---
 title: "SURV628 Group Assignment Code"
-author: "Zach Einolf"
+author: "Hannah Christopher"
 date: "10/07/2025"
 output:
   pdf_document:
@@ -8,28 +8,82 @@ output:
 ---
 
 ```{r, echo=FALSE} 
-library(faraway)
-library(dplyr)
 library(tidyverse)
-library(ISLR2)
-library(mgcv)
-library(MASS)
-library(leaps)
-library(janitor)
-library(sandwich)
-library(lmtest)
-library(ggplot2)
-library(caret)       
-library(boot)     
-library(pROC)         
-library(arm) 
-library(pROC)
-library(DataExplorer)
-library(factoextra)
-library(haven)
 ```
 
 ```{r}
-ess<- read_dta("ESS11.dta")
+ess_clean <- ESS11|>
+  select(
+    cntry,
+    atchctr,
+    atcherp,
+    anweight,
+    stratum,
+    psu,
+    vteurmmb,
+    region
+  )|>
+  filter(!is.na(atchctr), !is.na(atcherp))|>
+  mutate(attach_diff = atchctr - atcherp)
+
+mean(ess_clean$attach_diff)
 ```
+**Answer:** Respondents are about 2 points more emotionally attached to their country than to Europe. 
+
+```{r}
+country_summary <- ess_clean |>
+  group_by(cntry) |>
+  summarize(mean_diff = weighted.mean(attach_diff, anweight), .groups = 'drop') |>
+  arrange(desc(mean_diff))
+
+country_summary
+```
+```{r}
+ess_clean |>
+  group_by(cntry) |>
+  summarize(mean_diff = weighted.mean(attach_diff, anweight), .groups = 'drop') |>
+  ggplot(aes(x = reorder(cntry, mean_diff), y = mean_diff)) +
+  geom_col(fill = "steelblue") +
+  labs(
+    title = "Average Attachment Difference by Country",
+    x = "Country",
+    y = "Mean Attachment Difference (Country - Europe)"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+summary(ESS11$vteurmmb)
+```
+
+```{r}
+eu_countries <- c("AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE")
+
+ess_clean <- ess_clean|>
+  mutate(is_eu = cntry %in% eu_countries)
+
+country_summary <- ess_clean|>
+  group_by(cntry, is_eu)|>
+  summarize(
+    mean_diff = weighted.mean(attach_diff, anweight),
+    .groups = 'drop'
+  )
+    
+ggplot(country_summary, aes(x = cntry, y = mean_diff)) +
+  geom_col(fill = "steelblue") +
+  facet_wrap(~ is_eu) + 
+  labs(
+    title = "Attachment to Country Based on EU Membership",
+    x = "Country",
+    y = "Mean Attachment Difference"
+  ) +
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+
+
+
+
 
