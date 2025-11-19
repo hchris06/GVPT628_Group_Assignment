@@ -1,0 +1,188 @@
+---
+title: "SURV628 Group Assignment Code"
+author: "Hannah Christopher"
+date: "10/07/2025"
+output:
+  pdf_document:
+    latex_engine: xelatex
+---
+
+```{r, echo=FALSE} 
+library(tidyverse)
+library(srvyr)
+library(gssr)
+library(gssrdoc)
+library(haven)
+```
+
+
+```{r}
+ess<- haven::read_dta(unz('data/ESS11.zip', "ESS11.dta"))
+```
+
+```{r}
+ess_small <- ess |> 
+  dplyr::select(agea, polintr, idno, atcherp, atchctr, cntry, region, vteurmmb, domicil,
+         psu, stratum, anweight) |> 
+  mutate(
+    atcherp  = as.numeric(atcherp),
+    atchctr = as.numeric(atchctr),
+    cntry = as_factor(cntry),
+    region = as_factor(region),
+    vteurmmb = as_factor(vteurmmb),
+    domicil = as.numeric(domicil),
+    country_vs_europe = atchctr - atcherp
+  ) |> 
+  filter(!is.na(anweight), !is.na(psu), !is.na(stratum))
+
+ess_w <- svydesign(
+  ids = ~psu,
+  strata = ~stratum,
+  weights = ~anweight,
+  data = ess_small,
+  nest = TRUE
+)
+avg_se <- svymean(~country_vs_europe, ess_w, na.rm = TRUE)
+avg_se
+```
+# Q2
+```{r}
+country_gap <- svyby(
+  ~ country_vs_europe,
+  ~ cntry,
+  ess_w,
+  svymean,
+  na.rm = TRUE,
+  vartype = "se",
+  keep.names = FALSE
+)
+
+ggplot(country_gap,
+       aes(x = fct_reorder(cntry, country_vs_europe), y = country_vs_europe)) +
+  geom_col(fill="steelblue") +
+  labs(
+    x = "Country",
+    y = "Weighted Mean Attachment Gap",
+    title = "Weighted Mean Attachment Gap by Country"
+  ) +
+  theme_minimal()
+```
+#Q3
+```{r}
+outliers <- boxplot.stats(ess$eduyrs)$out
+
+by_educationC <- svyess |>
+  select(eduyrs, atchctr) |>
+  drop_na() |>
+  group_by(eduyrs) |>
+  summarize(mean = survey_mean(atchctr)) |>
+  filter(!eduyrs %in% outliers)
+
+ggplot(by_educationC, aes(x = eduyrs, y = mean)) +
+  geom_point(color = "blue", size = 3) +
+  theme_minimal() +
+  labs(title = "Education on attachment; home country", x = "Years of education", y = "Mean attachment to home country")
+
+by_education <- svyess |>
+  select(eduyrs, atcherp) |>
+  drop_na() |>
+  group_by(eduyrs) |>
+  summarize(mean = survey_mean(atcherp)) |>
+  filter(!eduyrs %in% outliers)
+
+ggplot(by_education, aes(x = eduyrs, y = mean)) +
+  geom_point(color = "blue", size = 3) +
+  theme_minimal() +
+  labs(title = "Education on attachment, Europe", x = "Years of education", y = "Mean attachment to Europe")
+```
+
+#Q4
+```{r}
+eu_countries <- c("AT","BE","BG","HR","CY","CZ","DK","EE","FI","FR","DE","GR","HU","IE","IT","LV","LT","LU","MT","NL","PL","PT","RO","SK","SI","ES","SE")
+
+svyess <- svyess |>
+  mutate(is_eu = cntry %in% eu_countries,
+         EU_opinion = case_when(
+           vteurmmb == 1 ~ "Stay in EU",
+           vteurmmb == 2 ~ "Leave EU",
+           vteubcmb == 1 ~ "Join EU",
+           vteubcmb == 2 ~ "Don't Join EU"
+         ))
+
+EU_attitudes <- svyess |>
+  select(difference, is_eu, EU_opinion) |>
+  drop_na() |>
+  group_by(is_eu, EU_opinion) |>
+  summarize(mean = survey_mean(difference)) |>
+  ungroup() |>
+  mutate(is_eu = factor(is_eu, labels = c("Not in EU", "EU Member")))
+
+ggplot(EU_attitudes, aes(x = EU_opinion, y = mean, fill = EU_opinion)) +
+  geom_col() +
+  scale_fill_manual(values = c("red3", "green3", "red3", "green3")) +
+  theme_minimal() +
+  labs(title = "Opinion on being in the EU on attachment to home country over Europe", x = "Opinion on EU", y = "Mean difference") +
+  facet_wrap(~is_eu, ncol = 2, scales = 'free_x') +
+  theme(legend.position = "none")
+```
+#Q5
+```{r}
+by_country_EU <- svyess |>
+  select(cntry, difference, is_eu) |>
+  drop_na() |>
+  group_by(cntry, is_eu) |>
+  summarize(mean = survey_mean(difference)) |>
+  mutate(is_eu = factor(is_eu, levels = c(FALSE, TRUE), labels = c("Not in EU", "EU Member")))
+
+ggplot(by_country_EU, aes(x = reorder(cntry, mean), y = mean, fill = is_eu)) +
+  geom_col() +
+  scale_fill_manual(values = c("red3", "gold")) +
+  theme_minimal() +
+  labs(title = "Attachment to country over Europe by country", x = "Country", y = "Mean difference") +
+  facet_wrap(~is_eu, ncol = 2, scales = 'free_x') +
+  theme(legend.position = "none")
+
+by_country_EU |>
+  group_by(is_eu) |>
+  summarize(mean_difference = mean(mean))
+```
+#Q6
+```{r}
+dom_means <- svyby(
+  ~ country_vs_europe + atchctr, 
+  ~ domicil, 
+  ess_w,
+  svymean, 
+  na.rm = TRUE, 
+  vartype = "se"
+) |> 
+  filter(!is.na(domicil))
+
+ggplot(dom_means, aes(x = factor(domicil), y = country_vs_europe)) +
+  geom_col(fill = "steelblue") +
+  geom_hline(yintercept = 0, linetype = 2) +
+  xlab("Domicile") +
+  ylab("Weighted Mean Attachment (Country − Europe)") +
+  scale_x_discrete(labels = c(
+    "1" = "A big city",
+    "2" = "Suburbs or outskirts of a big city",
+    "3" = "Town or small city",
+    "4" = "Country village",
+    "5" = "Farm or home in countryside"
+  ))
+
+ggplot(dom_means, aes(x = factor(domicil), y = atchctr)) +
+  geom_col(fill = "lightblue") +
+  geom_hline(yintercept = 0, linetype = 2) +
+  xlab("Domicile") +
+  ylab("Weighted Mean Attachment") +
+  scale_x_discrete(labels = c(
+    "1" = "A big city",
+    "2" = "Suburbs or outskirts of a big city",
+    "3" = "Town or small city",
+    "4" = "Country village",
+    "5" = "Farm or home in countryside"
+  ))
+
+```
+
